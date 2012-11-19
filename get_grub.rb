@@ -91,13 +91,15 @@ def fetch_menu(restaurant_id)
 end
 
 
-def extract_matching_item(menu, query_name)
+def extract_matching_item(menu, query_name, active_timeperiod)
 
   items = []
   menu['menu-sections'][0]['section'].each do|section|
     section['items'][0]['item'].each do|item|
       name = item['name'][0]
-      if name.downcase.include? query_name.downcase
+      if (name.downcase.include? query_name.downcase) &&
+          (item['availability'] == nil ||
+              item['availability'].inject(false){|result, x| result || (active_timeperiod != nil && (x['time-period-ref'][0]['id'] == active_timeperiod))})
         items << item
       end
     end
@@ -221,6 +223,18 @@ def build_valid_selections_for(item, menu)
   selections
 end
 
+def determine_active_timeperiod(menu)
+  if menu['time-periods'][0]['time-period']
+    menu['time-periods'][0]['time-period'].each do |x|
+      if x['active']
+        return x['id']
+      end
+    end
+  end
+
+  nil
+end
+
 
 
 if __FILE__==$0
@@ -333,7 +347,8 @@ if __FILE__==$0
     puts "... Trying to match items at #{restaurant['name']} " if $options[:debug]
 
     menu = fetch_menu(restaurant['id'])
-    matching_items = extract_matching_item(menu, $options[:search_term])
+    active_timeperiod = determine_active_timeperiod(menu)
+    matching_items = extract_matching_item(menu, $options[:search_term], active_timeperiod)
 
     puts ""
     puts "#############################"
