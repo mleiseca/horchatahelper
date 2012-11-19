@@ -6,9 +6,8 @@ require 'xmlsimple'
 require 'json'
 require 'optparse'
 
-
-def fetch_url(urlstring)
-  puts "Fetching url: #{urlstring}"
+def fetch_url(urlstring, args)
+  puts "Fetching url: #{urlstring}" if $options[:debug]
   url = URI.parse(urlstring)
   http = Net::HTTP.new(url.host, url.port)
 
@@ -18,10 +17,8 @@ def fetch_url(urlstring)
   response = http.start { |h| h.post(url.request_uri, "") }
   data = XmlSimple.xml_in(response.body)
 
-
   if data['messages']
     data['messages'][0]['message'].each do|message|
-
       puts "#{message['type']}:: #{message['message'][0]}"
     end
   end
@@ -40,29 +37,28 @@ def fetch_geocode(location)
   combined_address.delete_if{|x| x == nil}
   combined_address_string = combined_address.join(" ")
 
-  puts "Geocoding '#{combined_address_string}'"
+  puts "Geocoding '#{combined_address_string}'"  if $options[:debug]
 
   #http://www.grubhub.com/services/utility/geocode?apiKey=&version=1&format=xml&combinedAddress=111+W+Washington+Chicago+IL
 
   urlstring = "https://#{HOST_NAME}/services/utility/geocode?format=xml&version=1&apiKey=#{API_KEY}&combinedAddress=#{URI.encode(combined_address_string)}"
 
-  fetch_url(urlstring)
+  fetch_url(urlstring, {})
 
 end
 
 def fetch_restaurants_serving(location, item)
-  puts "Searching for #{item} at #{location}"
 
   urlstring = "https://#{HOST_NAME}/services/search/lite/results?format=xml&apiKey=#{API_KEY}&lat=#{location['lat']}&lng=#{location['lng']}&menuSearchTerm=#{URI::encode(item)}"
 
-  fetch_url(urlstring)
+  fetch_url(urlstring, {})
 end
 
 
 def fetch_menu(restaurant_id)
   urlstring = "https://#{HOST_NAME}/services/restaurant/menu?format=xml&apiKey=#{API_KEY}&restaurantId=#{restaurant_id}"
 
-  fetch_url(urlstring)
+  fetch_url(urlstring, {})
 end
 
 
@@ -98,10 +94,7 @@ def start_order_with_item(credentials, location, restaurant_id,pickup, generatio
   urlstring += "&crossstreet=Madison"
   #todo: other location bits
 
-
-
-
-  order_check = fetch_url(urlstring)
+  order_check = fetch_url(urlstring, {})
 
   #protected String address1;
   #protected String address2;
@@ -122,7 +115,7 @@ def apply_freegrub(credentials, order_check, freegrub_string)
   urlstring += "&giftCardCode=#{freegrub_string}"
   urlstring += "&orderId=#{order_check['order'][0]['id'][0]}"
 
-  fetch_url(urlstring)
+  fetch_url(urlstring, {})
 end
 
 def finalize(credentials, order_check)
@@ -136,7 +129,7 @@ def finalize(credentials, order_check)
 
   urlstring += "&total=" + get_total(order_check)
 
-  fetch_url(urlstring)
+  fetch_url(urlstring, {})
 end
 
 
@@ -173,27 +166,20 @@ def read_config()
 end
 
 if __FILE__==$0
-
-
   optparse = OptionParser.new do|opts|
-    # opts.banner = "Usage: check_mysql_stat_delta  ..."
 
     $options = {}
     $options[:config] = read_config()
     API_KEY = $options[:config]["apiKey"]
     HOST_NAME = $options[:config]["grubhubHostname"]
 
-
-
     # This displays the help screen, all programs are
     # assumed to have this option.
     opts.on( '-l', '--location LOCATION_NAME', 'Select location from config file' ) do |location_name|
-      puts "got l: #{location_name}"
       $options[:location]= $options[:config]["locations"][location_name]
 
       unless $options[:location]
         print "Could not find location: #{$options[:location]}"
-
         exit
       end
     end
@@ -205,14 +191,38 @@ if __FILE__==$0
         exit
       end
     end
+
+    opts.on('-d', '', "Debug") do
+      $options[:debug] = true
+    end
+
+    $options[:sort_mode] = 'DISTANCE'
+    opts.on('-s', '--sortmode SORT_MODE', "Which restaurants should appear first?") do |sort_mode|
+      #STAR_RATING, AGE
+      $options[:sort_mode] = sort_mode
+    end
+
   end
 
   optparse.parse!
+
+  #########################################################################################################
+  #
+  # Validate user input
+  #
+  #########################################################################################################
 
   if $options[:location] == nil
     print "No location specified. Exiting"
     exit
   end
+
+
+  #########################################################################################################
+  #
+  # Geocode...if the user selected a location without lat/lng
+  #
+  #########################################################################################################
 
   if $options[:location]["lat"]==nil|| $options[:location]["lng"]==nil
     geocode_response = fetch_geocode($options[:location])
@@ -221,15 +231,24 @@ if __FILE__==$0
     if geocode_response['geocode'].length == 1
       lat = geocode_response['geocode'][0]["lat"][0]
       lng = geocode_response['geocode'][0]["lng"][0]
-      puts "Had to geocode. You can skip this by adding lat:#{lat}, lng:#{lng} to your config for this address"
+      puts "**** Had to geocode. You can skip this by adding ...\"lat\":\"#{lat}\", \"lng\":\"#{lng}\" to your config for this address*****"
 
       $options[:location]["lat"] = lat
       $options[:location]["lng"] = lng
     else
-      puts "Uh oh! Found #{geocode_response['geocode'].length} geocodes for this address. Fix your config with a distinct address"
+      puts "Uh oh! Found #{geocode_response['geocode'].length} geocodes for this address. Fix your config with a distinct address. Can't proceed'"
       exit
     end
   end
+
+  #########################################################################################################
+  #
+  # Search
+  #
+  #########################################################################################################
+
+  print "Searching for #{$options[:search_term]} at #{$options[:location]["address"]}.... "
+
   search_response = fetch_restaurants_serving($options[:location], $options[:search_term])
 
   matching_restaurants = search_response['restaurants'][0]['restaurant']
@@ -239,23 +258,45 @@ if __FILE__==$0
     exit
   end
 
-  puts "... Found #{matching_restaurants.length} restaurants"
+  puts "found #{matching_restaurants.length} restaurants"
+  sleep(1)
+
+  #########################################################################################################
+  #
+  # Poke through matching restaurants looking for matching items
+  #  ... there is a service in the works that would do this for us...
+  #
+  #########################################################################################################
+
 
   matching_restaurants.each do|restaurant|
 
-    puts "... Trying to match items at #{restaurant['name']} "
+    puts "... Trying to match items at #{restaurant['name']} " if $options[:debug]
 
     menu = fetch_menu(restaurant['id'])
     matching_items = extract_matching_item(menu, $options[:search_term])
 
+    puts ""
+    puts "#############################"
+    puts "#  #{restaurant['name']}"
+    puts "#  #{restaurant['streetAddress']}"
+    puts "#  %2.2f miles" % restaurant['distance-miles']
+    puts "#  #{restaurant['cuisines'][0]['cuisine'].join(', ')}"
+    puts "#  #{matching_items.length} matching items"
+    puts "#############################"
+
+
     continue if ! matching_items
 
+    puts "How about..."
     matching_items.each do|item|
-      print "...found item: '#{item['name']}'. Ok? [y/N]: "
+      print "- '#{item['name']}'. Ok? [y/N/Skiprestaurant]: "
 
       input = gets
 
-      if input.strip.downcase == 'y'
+      if input.strip.downcase == 's'
+        break
+      elsif input.strip.downcase == 'y'
         puts "Adding item to order..."
         order_check = start_order_with_item($options[:config]["credentials"], $options[:location], restaurant['id'], true, menu['generation-date'][0], item, [])
         display_check(order_check)
@@ -283,11 +324,9 @@ if __FILE__==$0
         #  trying with the next item
       end
     end
-
-    puts "No more matching items found at this restaurant. Trying the next one"
   end
 end
-puts "No more matching restaurants found."
+puts "No more restaurants. Start over"
 
 
 #  todo: start using saved...
