@@ -42,7 +42,7 @@ def fetch_url(urlstring, args)
   http.use_ssl = true
   http.verify_mode = OpenSSL::SSL::VERIFY_NONE
 
-  response = http.start { |h| h.post(url.request_uri, "") }
+  response = http.start { |h| h.post(url.request_uri, URI.escape(args.collect{|k,v| "#{k}=#{v}"}.join('&'))) }
   data = XmlSimple.xml_in(response.body)
 
   if data['messages']
@@ -68,19 +68,24 @@ def fetch_geocode(location)
 
   puts "Geocoding '#{combined_address_string}'"  if $options[:debug]
 
-  #http://www.grubhub.com/services/utility/geocode?apiKey=&version=1&format=xml&combinedAddress=111+W+Washington+Chicago+IL
+  urlstring = "https://#{HOST_NAME}/services/utility/geocode?format=xml&version=1&apiKey=#{API_KEY}"
 
-  urlstring = "https://#{HOST_NAME}/services/utility/geocode?format=xml&version=1&apiKey=#{API_KEY}&combinedAddress=#{URI.encode(combined_address_string)}"
-
-  fetch_url(urlstring, {})
+  fetch_url(urlstring, {:combinedAddress => combined_address_string})
 
 end
 
 def fetch_restaurants_serving(location, item)
 
-  urlstring = "https://#{HOST_NAME}/services/search/lite/results?format=xml&apiKey=#{API_KEY}&open=true&lat=#{location['lat']}&lng=#{location['lng']}&menuSearchTerm=#{URI::encode(item)}"
+  urlstring = "https://#{HOST_NAME}/services/search/lite/results?format=xml&apiKey=#{API_KEY}"
 
-  fetch_url(urlstring, {})
+  fetch_url(urlstring, {
+      :open     => true,
+      :restaurantType   => "PICKUP",
+      :sortMode => $options[:sort_mode],
+      :lat      => location['lat'],
+      :lng      => location['lng'],
+      :menuSearchTerm => item
+  })
 end
 
 
@@ -110,14 +115,19 @@ end
 def start_order_with_item(credentials, location, restaurant_id,pickup, generation_date, item, selections)
   urlstring = "https://#{HOST_NAME}/services/order/new?format=xml&apiKey=#{API_KEY}&restaurantId=#{restaurant_id}"
   urlstring += "&menuItemId=#{item['id']}"
-  urlstring += "&email=#{credentials['email']}&password=#{credentials['password']}"
+
+  data = {
+      :email    => credentials['email'],
+      :password => credentials['password'],
+      :generationDate=> generation_date,
+      :quantity =>1
+  }
   if selections
-    urlstring += "&choiceOptions=" + selections.join(',')
+    data[:choiceOptions] = selections.join(',')
   end
-  urlstring += "&quantity=1"
-  urlstring += "&generationDate=#{URI::encode(generation_date)}"
+
   if pickup
-    urlstring += "&pickup=Y"
+    data[:pickup] = "Y"
   end
 
 
@@ -125,7 +135,7 @@ def start_order_with_item(credentials, location, restaurant_id,pickup, generatio
   urlstring += "&crossstreet=Madison"
   #todo: other location bits
 
-  order_check = fetch_url(urlstring, {})
+  order_check = fetch_url(urlstring, data)
 
   #protected String address1;
   #protected String address2;
@@ -142,25 +152,30 @@ end
 def apply_freegrub(credentials, order_check, freegrub_string)
 
   urlstring = "https://#{HOST_NAME}/services/order/giftcard/apply?format=xml&apiKey=#{API_KEY}"
-  urlstring += "&email=#{credentials['email']}&password=#{credentials['password']}"
-  urlstring += "&giftCardCode=#{freegrub_string}"
-  urlstring += "&orderId=#{order_check['order'][0]['id'][0]}"
 
-  fetch_url(urlstring, {})
+  fetch_url(urlstring, {
+      :email        => credentials['email'],
+      :password     => credentials['password'],
+      :giftCardCode => freegrub_string,
+      :orderId      => order_check['order'][0]['id'][0]
+  })
 end
 
 def finalize(credentials, order_check)
   urlstring = "https://#{HOST_NAME}/services/order/finalize?format=xml&apiKey=#{API_KEY}"
-  urlstring += "&email=#{credentials['email']}&password=#{credentials['password']}"
-  urlstring += "&orderId=#{order_check['order'][0]['id'][0]}"
-  #todo
-  urlstring += "&payment=creditcard"
+
   #todo
   urlstring += "&phone=3129521502"
 
-  urlstring += "&total=" + get_total(order_check)
+  fetch_url(urlstring, {
+      :email        => credentials['email'],
+      :password     => credentials['password'],
+      :orderId      => order_check['order'][0]['id'][0],
+      :payment=>"creditcard",
+      :total=> get_total(order_check)
+  })
 
-  fetch_url(urlstring, {})
+
 end
 
 
@@ -177,7 +192,7 @@ def display_check(order_check)
 
   puts ""
   puts "#############################"
-  puts "####### ORDER SUMMARY #######"
+  puts "####### " + "ORDER SUMMARY".yellow + " #######"
   puts "#############################"
   puts "Order Id    : #{check['id'][0]}"
   puts "Order method: #{check['order-method'][0]}"
@@ -210,7 +225,7 @@ def build_valid_selections_for(item, menu)
 
   item['choices'][0]['choice-ref'].each do|c_ref|
     choice = choice_by_id[c_ref['id']]
-    puts "checking out item choice: #{c_ref['id']}. min is #{choice['min']}"
+    puts "checking out item choice: #{c_ref['id']}. min is #{choice['min']}" if $options[:debug]
     min = choice['min'].to_i
     if min > 0
       choice['options'][0]['option'].shuffle().take(min).each do|o_ref|
