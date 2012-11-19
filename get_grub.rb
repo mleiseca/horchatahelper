@@ -27,6 +27,10 @@ class String
   def pink
     colorize(35)
   end
+
+  def blink
+    "\e[5m#{self}\e[25m"
+  end
 end
 
 
@@ -45,6 +49,7 @@ def fetch_url(urlstring, args)
     data['messages'][0]['message'].each do|message|
       puts "#{message['type']}:: #{message['message'][0]}"
     end
+    exit
   end
   data
 end
@@ -73,7 +78,7 @@ end
 
 def fetch_restaurants_serving(location, item)
 
-  urlstring = "https://#{HOST_NAME}/services/search/lite/results?format=xml&apiKey=#{API_KEY}&lat=#{location['lat']}&lng=#{location['lng']}&menuSearchTerm=#{URI::encode(item)}"
+  urlstring = "https://#{HOST_NAME}/services/search/lite/results?format=xml&apiKey=#{API_KEY}&open=true&lat=#{location['lat']}&lng=#{location['lng']}&menuSearchTerm=#{URI::encode(item)}"
 
   fetch_url(urlstring, {})
 end
@@ -168,16 +173,19 @@ end
 def display_check(order_check)
   check = order_check['order'][0]
 
-  puts "\n=== ORDER SUMMARY ==="
+  puts ""
+  puts "#############################"
+  puts "####### ORDER SUMMARY #######"
+  puts "#############################"
   puts "Order Id    : #{check['id'][0]}"
   puts "Order method: #{check['order-method'][0]}"
-  puts "\n=== ITEMS ==="
+  puts "\n======= ITEMS ======="
   check['order-items'][0]['order-item'].each do|order_item|
-    desc = "(#{order_item['quantity'][0]}) #{order_item['name'][0]}"
+    desc = "(#{order_item['quantity'][0]}) #{order_item['name'][0]} " + (order_item['description'].nil? ? "" : order_item['description'][0])
     puts desc + (" " * [2, (20 - desc.length)].max ) + " $ #{order_item['price'][0]}"
   end
 
-  puts "\n=== MATH ==="
+  puts "\n======= MATH ======="
   check['check'][0]['line-item'].each do|line_item|
 
     item_type = line_item['type'] + ":"
@@ -188,6 +196,32 @@ end
 def read_config()
   JSON.parse(File.read("config.json"))
 end
+
+def build_valid_selections_for(item, menu)
+
+  selections = []
+
+  choice_by_id = {}
+  menu['item-choices'][0]['choice'].each do|choice|
+    choice_by_id[choice['id']] = choice
+  end
+
+  item['choices'][0]['choice-ref'].each do|c_ref|
+    choice = choice_by_id[c_ref['id']]
+    puts "checking out item choice: #{c_ref['id']}. min is #{choice['min']}"
+    min = choice['min'].to_i
+    if min > 0
+      choice['options'][0]['option'].shuffle().take(min).each do|o_ref|
+        puts "adding option #{o_ref['id']}"
+        selections << o_ref['id']
+      end
+    end
+  end
+
+  selections
+end
+
+
 
 if __FILE__==$0
   optparse = OptionParser.new do|opts|
@@ -282,7 +316,8 @@ if __FILE__==$0
     exit
   end
 
-  puts "found #{matching_restaurants.length} restaurants"
+  count_str = matching_restaurants.length.to_s.yellow
+  puts "found #{count_str} restaurants"
   sleep(1)
 
   #########################################################################################################
@@ -322,7 +357,10 @@ if __FILE__==$0
         break
       elsif input.strip.downcase == 'y'
         puts "Adding item to order..."
-        order_check = start_order_with_item($options[:config]["credentials"], $options[:location], restaurant['id'], true, menu['generation-date'][0], item, [])
+
+        selections = item['choices'][0].empty? ? [] : build_valid_selections_for(item, menu)
+
+        order_check = start_order_with_item($options[:config]["credentials"], $options[:location], restaurant['id'], true, menu['generation-date'][0], item, selections)
         display_check(order_check)
 
         if $options[:config]["freegrubs"].length > 0
@@ -349,8 +387,8 @@ if __FILE__==$0
       end
     end
   end
+  puts "No more restaurants. Start over"
 end
-puts "No more restaurants. Start over"
 
 
 #  todo: start using saved...
