@@ -6,6 +6,30 @@ require 'xmlsimple'
 require 'json'
 require 'optparse'
 
+class String
+  # colorization
+  def colorize(color_code)
+    "\e[#{color_code}m#{self}\e[0m"
+  end
+
+  def red
+    colorize(31)
+  end
+
+  def green
+    colorize(32)
+  end
+
+  def yellow
+    colorize(33)
+  end
+
+  def pink
+    colorize(35)
+  end
+end
+
+
 def fetch_url(urlstring, args)
   puts "Fetching url: #{urlstring}" if $options[:debug]
   url = URI.parse(urlstring)
@@ -280,7 +304,8 @@ if __FILE__==$0
     puts "#############################"
     puts "#  #{restaurant['name']}"
     puts "#  #{restaurant['streetAddress']}"
-    puts "#  %2.2f miles" % restaurant['distance-miles']
+    dist = ("%2.2f" % restaurant['distance-miles']).yellow
+    puts "#  #{dist} miles"
     puts "#  #{restaurant['cuisines'][0]['cuisine'].join(', ')}"
     puts "#  #{matching_items.length} matching items"
     puts "#############################"
@@ -293,7 +318,6 @@ if __FILE__==$0
       print "- '#{item['name']}'. Ok? [y/N/Skiprestaurant]: "
 
       input = gets
-
       if input.strip.downcase == 's'
         break
       elsif input.strip.downcase == 'y'
@@ -330,16 +354,11 @@ puts "No more restaurants. Start over"
 
 
 #  todo: start using saved...
-#     - locations
 #     - payment options
-#     - login credentials
 #  todo: command line input for
-#     - which location to use
-#     - an item to search for
 #     - how much interactivity...approve particular items? only approve total? no approval??
 #     - pickup vs delivery??? (would have to add something about tip and delivery minimum)
 #  todo: general
-#     - loop to keep trying order
 #     - build an item with randomly selection (required only?) options
 #     - maximum amount to spend
-
+#     - how to print in color?
