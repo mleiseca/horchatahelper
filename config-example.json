@@ -1,0 +1,37 @@
+{
+    "grubhubHostname" : "www.grubhub.com",
+    "apiKey" : "XXXXXXXXXXXXXXXXXXX",
+
+
+    "credentials" :{
+        "email" : "youremail@example.com",
+        "password" :  "yourpassword"
+    },
+
+    "locations":
+    {
+        "Home" : {
+            "address": "223 Main St",
+            "address2": "#1",
+            "city"  : "Oak Park",
+            "state"  : "IL",
+            "zip"   : "60302" ,
+            "crossStreet": "Lake"
+        },
+        "Work" : {
+            "address": "111 W Washington ",
+            "address2": "Suite 2100",
+            "city"  : "Chicago",
+            "state"  : "IL",
+            "zip"   : "60604",
+            "crossStreet": "Clark"
+        }
+    },
+
+    "freegrubs" : ["XXXXXXXXXXXXXXXXX"],
+    "creditcard" : {
+        "number" : "4111111111111111",
+        "exp"    : "01/12",
+        "cvv"    : "123"
+    }
+}
